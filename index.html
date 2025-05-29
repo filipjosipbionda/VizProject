@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Global Road Deaths Visualization</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://d3js.org/topojson.v3.min.js"></script>
+  <style>
+    body { font-family: sans-serif; margin: 20px; text-align: center; }
+    #map { margin: 0 auto; display: block; }
+    svg { height: auto; }
+    .tooltip {
+      position: absolute;
+      background-color: white;
+      border: 1px solid #ccc;
+      padding: 5px;
+      pointer-events: none;
+    }
+    #sliderContainer {
+      width: 320px;
+      margin: 20px auto;
+    }
+    #yearSlider {
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+<h2>Global Road Traffic Deaths</h2>
+<div id="sliderContainer">
+  <input type="range" id="yearSlider" min="0" max="0" step="1">
+  <div>Year: <span id="sliderValue"></span></div>
+</div>
+<div id="map"></div>
+
+<script>
+const width = 960, height = 500;
+const mapSvg = d3.select("#map").append("svg")
+    .attr("width", width).attr("height", height);
+
+const projection = d3.geoNaturalEarth1().scale(160).translate([width / 2, height / 2]);
+const path = d3.geoPath(projection);
+
+const colorScale = d3.scaleSequential(d3.interpolateReds).domain([0, 50000]);
+const tooltip = d3.select("body").append("div").attr("class", "tooltip").style("opacity", 0);
+
+const nameFix = {
+  "USA": "United States of America",
+  "Russia": "Russian Federation",
+  "South Korea": "Republic of Korea",
+  "North Korea": "Democratic People's Republic of Korea",
+  "Iran": "Iran (Islamic Republic of)",
+  "Vietnam": "Viet Nam",
+  "Syria": "Syrian Arab Republic",
+  "Laos": "Lao People's Democratic Republic",
+  "Ivory Coast": "Côte d'Ivoire",
+  "Tanzania": "United Republic of Tanzania",
+  "Moldova": "Republic of Moldova",
+  "Venezuela": "Venezuela (Bolivarian Republic of)",
+  "Bolivia": "Bolivia (Plurinational State of)",
+  "Brunei": "Brunei Darussalam",
+  "Czech Republic": "Czechia",
+  "Cape Verde": "Cabo Verde",
+  "Swaziland": "Eswatini",
+  "England": "United Kingdom of Great Britain and Northern Ireland"
+};
+
+Promise.all([
+  d3.json("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson"),
+  d3.csv("road_deaths_clean.csv")
+]).then(([geoData, csvData]) => {
+  csvData.forEach(d => {
+    d.Year = +d.Year;
+    d.Deaths_Both = +d.Deaths_Both;
+  });
+
+  const dataMap = d3.group(csvData, d => d.Year);
+  const years = Array.from(dataMap.keys()).sort((a, b) => a - b);
+
+  const sliderElement = document.getElementById("yearSlider");
+  sliderElement.min = 0;
+  sliderElement.max = years.length - 1;
+
+  sliderElement.addEventListener("input", function () {
+    const selectedYear = years[this.value];
+    document.getElementById("sliderValue").textContent = selectedYear;
+    updateMap(selectedYear);
+  });
+
+  document.getElementById("sliderValue").textContent = years[0];
+  updateMap(years[0]);
+
+  function updateMap(year) {
+    const yearData = new Map(dataMap.get(year).map(d => [d.Country, d.Deaths_Both]));
+
+    const paths = mapSvg.selectAll("path")
+      .data(geoData.features);
+
+    paths.enter()
+      .append("path")
+      .attr("d", path)
+      .merge(paths)
+      .attr("stroke", "#444")
+      .attr("stroke-width", 0.5)
+      .attr("fill", d => {
+        const countryName = nameFix[d.properties.name] || d.properties.name;
+        const val = yearData.get(countryName);
+        return val ? colorScale(val) : "#eee";
+      })
+      .on("mouseover", (event, d) => {
+        const countryName = nameFix[d.properties.name] || d.properties.name;
+        const val = yearData.get(countryName);
+        tooltip.transition().duration(200).style("opacity", .9);
+        tooltip.html(`<strong>${countryName}</strong><br/>Deaths: ${val || 'N/A'}`)
+          .style("left", (event.pageX + 5) + "px")
+          .style("top", (event.pageY - 28) + "px");
+      })
+      .on("mouseout", () => tooltip.transition().duration(500).style("opacity", 0));
+
+    paths.exit().remove();
+  }
+});
+</script>
+</body>
+</html>
