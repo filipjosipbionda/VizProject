@@ -1,125 +1,281 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
-  <title>Global Road Deaths Visualization</title>
+  <title>Dynamic Road Deaths Visualization</title>
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <script src="https://d3js.org/topojson.v3.min.js"></script>
   <style>
-    body { font-family: sans-serif; margin: 20px; text-align: center; }
-    #map { margin: 0 auto; display: block; }
-    svg { height: auto; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f4f4f4;
+      display: flex;
+      gap: 20px;
+    }
+
+    .card {
+      background-color: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+      padding: 20px;
+      flex: 1;
+    }
+
+    input[type=range] {
+      width: 100%;
+    }
+
     .tooltip {
       position: absolute;
       background-color: white;
       border: 1px solid #ccc;
-      padding: 5px;
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-size: 14px;
       pointer-events: none;
-    }
-    #sliderContainer {
-      width: 320px;
-      margin: 20px auto;
-    }
-    #yearSlider {
-      width: 100%;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
     }
   </style>
 </head>
+
 <body>
-<h2>Global Road Traffic Deaths</h2>
-<div id="sliderContainer">
-  <input type="range" id="yearSlider" min="0" max="0" step="1">
-  <div>Year: <span id="sliderValue"></span></div>
-</div>
-<div id="map"></div>
+  <script>
+    // Tooltip creation
+    const tooltip = d3.select("body").append("div")
+      .attr("class", "tooltip")
+      .style("opacity", 0);
 
-<script>
-const width = 960, height = 500;
-const mapSvg = d3.select("#map").append("svg")
-    .attr("width", width).attr("height", height);
+    // Country name normalization
+    const nameFix = {
+      "USA": "United States of America",
+      "Russia": "Russian Federation",
+      "South Korea": "Republic of Korea",
+      "North Korea": "Democratic People's Republic of Korea",
+      "Iran": "Iran (Islamic Republic of)",
+      "Vietnam": "Viet Nam",
+      "Syria": "Syrian Arab Republic",
+      "Laos": "Lao People's Democratic Republic",
+      "Ivory Coast": "Côte d'Ivoire",
+      "Tanzania": "United Republic of Tanzania",
+      "Moldova": "Republic of Moldova",
+      "Venezuela": "Venezuela (Bolivarian Republic of)",
+      "Bolivia": "Bolivia (Plurinational State of)",
+      "Brunei": "Brunei Darussalam",
+      "Czech Republic": "Czechia",
+      "Cape Verde": "Cabo Verde",
+      "Swaziland": "Eswatini",
+      "England": "United Kingdom of Great Britain and Northern Ireland"
+    };
 
-const projection = d3.geoNaturalEarth1().scale(160).translate([width / 2, height / 2]);
-const path = d3.geoPath(projection);
+    let selectedGender = "both";
 
-const colorScale = d3.scaleSequential(d3.interpolateReds).domain([0, 50000]);
-const tooltip = d3.select("body").append("div").attr("class", "tooltip").style("opacity", 0);
+    // Main layout: two panels
+    const leftPane = d3.select("body").append("div").attr("class", "card");
+    const rightPane = d3.select("body").append("div").attr("class", "card");
 
-const nameFix = {
-  "USA": "United States of America",
-  "Russia": "Russian Federation",
-  "South Korea": "Republic of Korea",
-  "North Korea": "Democratic People's Republic of Korea",
-  "Iran": "Iran (Islamic Republic of)",
-  "Vietnam": "Viet Nam",
-  "Syria": "Syrian Arab Republic",
-  "Laos": "Lao People's Democratic Republic",
-  "Ivory Coast": "Côte d'Ivoire",
-  "Tanzania": "United Republic of Tanzania",
-  "Moldova": "Republic of Moldova",
-  "Venezuela": "Venezuela (Bolivarian Republic of)",
-  "Bolivia": "Bolivia (Plurinational State of)",
-  "Brunei": "Brunei Darussalam",
-  "Czech Republic": "Czechia",
-  "Cape Verde": "Cabo Verde",
-  "Swaziland": "Eswatini",
-  "England": "United Kingdom of Great Britain and Northern Ireland"
-};
+    leftPane.append("h2").text("🌍 Global Road Traffic Deaths");
 
-Promise.all([
-  d3.json("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson"),
-  d3.csv("road_deaths_clean.csv")
-]).then(([geoData, csvData]) => {
-  csvData.forEach(d => {
-    d.Year = +d.Year;
-    d.Deaths_Both = +d.Deaths_Both;
-  });
+    // Slider
+    const sliderContainer = leftPane.append("div");
+    const slider = sliderContainer.append("input")
+      .attr("type", "range")
+      .attr("id", "yearSlider")
+      .attr("min", 0)
+      .attr("max", 0)
+      .attr("step", 1);
+    sliderContainer.append("div").html('🔕 Year: <span id="sliderValue"></span>');
 
-  const dataMap = d3.group(csvData, d => d.Year);
-  const years = Array.from(dataMap.keys()).sort((a, b) => a - b);
+    // Gender selector
+    const genderSelector = leftPane.append("div").style("margin", "10px 0 20px 0");
+    genderSelector.append("label").html('<input type="radio" name="gender" value="both" checked> All');
+    genderSelector.append("label").style("margin-left", "10px").html('<input type="radio" name="gender" value="male"> Man');
+    genderSelector.append("label").style("margin-left", "10px").html('<input type="radio" name="gender" value="female"> Women');
 
-  const sliderElement = document.getElementById("yearSlider");
-  sliderElement.min = 0;
-  sliderElement.max = years.length - 1;
+    const totalBox = leftPane.append("div")
+      .style("font-size", "16px")
+      .style("margin-bottom", "10px")
+      .style("font-weight", "bold")
+      .text("Total Deaths: ");
 
-  sliderElement.addEventListener("input", function () {
-    const selectedYear = years[this.value];
-    document.getElementById("sliderValue").textContent = selectedYear;
-    updateMap(selectedYear);
-  });
 
-  document.getElementById("sliderValue").textContent = years[0];
-  updateMap(years[0]);
 
-  function updateMap(year) {
-    const yearData = new Map(dataMap.get(year).map(d => [d.Country, d.Deaths_Both]));
+    // Map SVG
+    const width = 800, height = 500;
+    const mapSvg = leftPane.append("div").attr("id", "map").append("svg")
+      .attr("width", width)
+      .attr("height", height);
 
-    const paths = mapSvg.selectAll("path")
-      .data(geoData.features);
+    // Right panel
+    rightPane.append("h2").text("📊 Country Details");
+    const countryInfo = rightPane.append("div").attr("id", "countryInfo");
+    countryInfo.append("p").text("Click a country on the map to view details here.");
 
-    paths.enter()
-      .append("path")
-      .attr("d", path)
-      .merge(paths)
-      .attr("stroke", "#444")
-      .attr("stroke-width", 0.5)
-      .attr("fill", d => {
-        const countryName = nameFix[d.properties.name] || d.properties.name;
-        const val = yearData.get(countryName);
-        return val ? colorScale(val) : "#eee";
-      })
-      .on("mouseover", (event, d) => {
-        const countryName = nameFix[d.properties.name] || d.properties.name;
-        const val = yearData.get(countryName);
-        tooltip.transition().duration(200).style("opacity", .9);
-        tooltip.html(`<strong>${countryName}</strong><br/>Deaths: ${val || 'N/A'}`)
-          .style("left", (event.pageX + 5) + "px")
-          .style("top", (event.pageY - 28) + "px");
-      })
-      .on("mouseout", () => tooltip.transition().duration(500).style("opacity", 0));
+    // D3 map settings
+    const projection = d3.geoNaturalEarth1().scale(160).translate([width / 2, height / 2]);
+    const path = d3.geoPath(projection);
+    const colorScale = d3.scaleSequential(d3.interpolateReds).domain([0, 50000]);
 
-    paths.exit().remove();
-  }
-});
-</script>
+    // Load geo and csv data
+    Promise.all([
+      d3.json("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson"),
+      d3.csv("road_deaths_full_cleaned.csv")
+    ]).then(([geoData, csvData]) => {
+      csvData.forEach(d => {
+        d.Year = +d.Year;
+        d.Deaths_Both = +d.Deaths_Both;
+        d.Deaths_Male = +d.Deaths_Male;
+        d.Deaths_Female = +d.Deaths_Female;
+      });
+
+      const dataMap = d3.group(csvData, d => d.Year);
+      const years = Array.from(dataMap.keys()).sort((a, b) => a - b);
+
+      // Update slider range
+      slider.attr("max", years.length - 1);
+      d3.select("#sliderValue").text(years[0]);
+
+      // Year change
+      slider.on("input", function () {
+        const selectedYear = years[this.value];
+        d3.select("#sliderValue").text(selectedYear);
+        updateMap(selectedYear);
+      });
+
+      // Gender change
+      d3.selectAll('input[name="gender"]').on("change", function () {
+        selectedGender = this.value;
+        const yearIndex = +slider.property("value");
+        updateMap(years[yearIndex]);
+      });
+
+      // Enable zoom
+      mapSvg.call(d3.zoom()
+        .scaleExtent([1, 8])
+        .on("zoom", (event) => {
+          mapSvg.selectAll("path").attr("transform", event.transform);
+        }));
+
+      // Initial draw
+      updateMap(years[0]);
+
+      function updateMap(year) {
+        // Calculate total deaths for current year and gender
+        const totalDeaths = d3.sum(dataMap.get(year), d => {
+          return selectedGender === "male" ? d.Deaths_Male :
+            selectedGender === "female" ? d.Deaths_Female :
+              d.Deaths_Both;
+        });
+
+        // Update the totalBox text
+        totalBox.text(`Total Deaths: ${totalDeaths.toLocaleString()}`);
+
+        const yearData = new Map(
+          dataMap.get(year).map(d => {
+            const value = selectedGender === "male" ? d.Deaths_Male :
+              selectedGender === "female" ? d.Deaths_Female :
+                d.Deaths_Both;
+            return [d.Country, value];
+          })
+        );
+
+        const paths = mapSvg.selectAll("path").data(geoData.features);
+
+        // Enter + update
+        paths.enter()
+          .append("path")
+          .attr("d", path)
+          .merge(paths)
+          .attr("stroke", "#555")
+          .attr("stroke-width", 0.5)
+          .attr("fill", d => {
+            const name = nameFix[d.properties.name] || d.properties.name;
+            const val = yearData.get(name);
+            return val ? colorScale(val) : "#eee";
+          })
+          .on("mouseover", (event, d) => {
+            const name = nameFix[d.properties.name] || d.properties.name;
+            const val = yearData.get(name);
+            tooltip.transition().duration(200).style("opacity", .9);
+            tooltip.html(`<strong>${name}</strong><br/>Deaths: ${val || 'N/A'}`)
+              .style("left", (event.pageX + 10) + "px")
+              .style("top", (event.pageY - 28) + "px");
+          })
+          .on("mouseout", () => tooltip.transition().duration(400).style("opacity", 0))
+          .on("click", (_, d) => {
+            const raw = d.properties.name;
+            const name = nameFix[raw] || raw;
+            const countryData = csvData.filter(row => row.Country === name);
+            countryInfo.html("").append("h3").text(name);
+
+            if (!countryData.length) {
+              countryInfo.append("p").text("No data available.");
+              return;
+            }
+
+            const svg = countryInfo.append("svg")
+              .attr("viewBox", "0 0 600 300");
+
+            const latest = countryData.sort((a, b) => b.Year - a.Year)[0];
+            const genderData = [
+              { gender: "Male", value: latest.Deaths_Male },
+              { gender: "Female", value: latest.Deaths_Female }
+            ];
+            const maxY = d3.max(genderData, d => d.value) * 1.1;
+
+            const x1 = d3.scaleBand().domain(genderData.map(d => d.gender)).range([50, 230]).padding(0.4);
+            const y1 = d3.scaleLinear().domain([0, maxY]).range([260, 40]);
+
+            svg.append("text").attr("x", 50).attr("y", 30).text("Deaths by Gender").style("font-weight", "bold");
+            svg.append("g").attr("transform", "translate(0,260)").call(d3.axisBottom(x1));
+            svg.append("g").attr("transform", "translate(50,0)").call(d3.axisLeft(y1));
+
+            svg.selectAll(".bar")
+              .data(genderData)
+              .enter().append("rect")
+              .attr("x", d => x1(d.gender))
+              .attr("y", d => y1(d.value))
+              .attr("width", x1.bandwidth())
+              .attr("height", d => 260 - y1(d.value))
+              .attr("fill", "#69b3a2")
+              .on("mouseover", function (event, d) {
+                tooltip.transition().duration(200).style("opacity", .9);
+                tooltip.html(`<strong>${d.gender}</strong>: ${d.value}`)
+                  .style("left", (event.pageX + 10) + "px")
+                  .style("top", (event.pageY - 28) + "px");
+              })
+              .on("mouseout", () => tooltip.transition().duration(500).style("opacity", 0));
+
+            const lineX = d3.scaleLinear().domain(d3.extent(countryData, d => d.Year)).range([330, 570]);
+            const lineY = d3.scaleLinear().domain([0, d3.max(countryData, d => d.Deaths_Both)]).range([260, 40]);
+
+            svg.append("text").attr("x", 330).attr("y", 30).text("Deaths Over Time").style("font-weight", "bold");
+            svg.append("g").attr("transform", "translate(0,260)").call(d3.axisBottom(lineX).ticks(5).tickFormat(d3.format("d")));
+            svg.append("g").attr("transform", "translate(330,0)").call(d3.axisLeft(lineY));
+
+            const line = d3.line().x(d => lineX(d.Year)).y(d => lineY(d.Deaths_Both));
+
+            svg.append("path")
+              .datum(countryData)
+              .attr("fill", "none")
+              .attr("stroke", "#d95f02")
+              .attr("stroke-width", 2)
+              .attr("d", line);
+
+            svg.selectAll(".dot")
+              .data(countryData)
+              .enter().append("circle")
+              .attr("cx", d => lineX(d.Year))
+              .attr("cy", d => lineY(d.Deaths_Both))
+              .attr("r", 3)
+              .attr("fill", "#d95f02");
+          });
+
+        paths.exit().remove();
+      }
+    });
+  </script>
 </body>
+
 </html>
