@@ -102,6 +102,7 @@
       .attr("id", "yearSlider")
       .attr("min", 0)
       .attr("max", 0)
+      .property("value", 0)
       .attr("step", 1);
 
     // Add label for the slider value
@@ -130,7 +131,7 @@
     ];
     genders.forEach((d, i) => {
       const label = genderSelector.append("label");
-      if (i > 0) label.style("margin-left", "10px");
+      label.style("margin-left", "10px");
 
       label.append("input")
         .attr("type", "radio")
@@ -146,7 +147,6 @@
       .style("font-size", "24px")
       .style("margin-bottom", "10px")
       .style("font-weight", "bold")
-      .text("Total Deaths: ");
 
     // Create the map container
     const width = 800, height = 500;
@@ -162,6 +162,17 @@
 
     // Country details panel
     graphPane.append("h2").text("📊 Country Details");
+    const clearButton = graphPane.append("button")
+  .attr("id", "clearButton")
+  .text("❌ Clear Selection")
+  .style("margin-bottom", "10px")
+  .style("display", "none") 
+  .on("click", () => {
+    selectedCountryName = null;
+    tooltip.style("opacity", 0);
+    countryInfo.html("").append("p").text("Click a country on the map to view details here.");
+    d3.select("#clearButton").style("display", "none");
+  });
     const countryInfo = graphPane.append("div").attr("id", "countryInfo");
     countryInfo.append("p").text("Click a country on the map to view details here.");
 
@@ -203,7 +214,7 @@
           slider.property("value", yearIndex);
           d3.select("#sliderValue").text(years[yearIndex]);
           updateMap(years[yearIndex]);
-        }, 1500);
+        }, 500);
       });
 
 
@@ -233,14 +244,15 @@
         updateMap(years[yearIndex]);
       });
 
-      // Enable zooming
-      mapSvg.call(d3.zoom()
-        .scaleExtent([1, 8])
-        .translateExtent([[0, 0], [width, height]])  // ograničenje panninga
-        .extent([[0, 0], [width, height]])
-        .on("zoom", (event) => {
-          mapSvg.selectAll("path").attr("transform", event.transform);
-        }));
+      // Enable zoom and pan functionality on the SVG map
+mapSvg.call(d3.zoom()
+  .scaleExtent([1, 8]) // Allow zooming between 1x and 8x scale
+  .translateExtent([[0, 0], [width, height]]) // Limit panning to the visible map area
+  .extent([[0, 0], [width, height]]) // Define the zoomable area (same as translateExtent)
+  .on("zoom", (event) => {
+    // Apply the zoom transformation to all country paths
+    mapSvg.selectAll("path").attr("transform", event.transform);
+  }));
 
       // Initial map drawing
       updateMap(years[0]);
@@ -257,6 +269,7 @@
         drawMap(mapSvg, geoData, yearData, nameFix, colorScale, path, tooltip, (name) =>
           showCountryDetails(name, csvData, nameFix, countryInfo, tooltip)
         );
+        drawLegend(worldMapPane, colorScale)
         if (selectedCountryName) {
           showCountryDetails(selectedCountryName, csvData, nameFix, countryInfo, tooltip);
         }
@@ -293,6 +306,7 @@
       paths.enter()
         .append("path")
         .attr("d", path)
+        .style("cursor", "pointer") 
         .merge(paths)
         .attr("stroke", "gray")
         .attr("stroke-width", 0.5)
@@ -320,10 +334,67 @@
       paths.exit().remove();
     }
 
+    function drawLegend(container, colorScale) {
+  // ⛔️ Ukloni prethodnu legendu ako postoji
+  container.selectAll(".legend").remove();
+
+  const legendWidth = 300;
+  const legendHeight = 10;
+
+  const legendSvg = container.append("svg")
+    .attr("class", "legend") // ✅ klasificiraj da se može lakše obrisati
+    .attr("width", legendWidth + 60)
+    .attr("height", 50)
+    .style("margin-top", "20px");
+
+  // Gradient definicija
+  const defs = legendSvg.append("defs");
+  const linearGradient = defs.append("linearGradient")
+    .attr("id", "legend-gradient");
+
+  linearGradient.selectAll("stop")
+    .data(d3.ticks(0, 1, 10))
+    .enter()
+    .append("stop")
+    .attr("offset", d => `${d * 100}%`)
+    .attr("stop-color", d => colorScale(d * colorScale.domain()[1]));
+
+  // Gradient rect
+  legendSvg.append("rect")
+    .attr("x", 30)
+    .attr("y", 10)
+    .attr("width", legendWidth)
+    .attr("height", legendHeight)
+    .style("fill", "url(#legend-gradient)");
+
+  // Skala
+  const legendScale = d3.scaleLinear()
+    .domain(colorScale.domain())
+    .range([30, 30 + legendWidth]);
+
+  const axis = d3.axisBottom(legendScale)
+    .ticks(5)
+    .tickFormat(d3.format(".0f"));
+
+  legendSvg.append("g")
+    .attr("transform", `translate(0, ${10 + legendHeight})`)
+    .call(axis);
+
+  legendSvg.append("text")
+    .attr("x", 30)
+    .attr("y", 0)
+    .text("Number of Deaths")
+    .style("font-size", "12px")
+    .style("font-weight", "bold");
+}
+
+
     // Show detail charts for a selected country
     function showCountryDetails(name, csvData, nameFix, countryInfo, tooltip) {
       const countryData = csvData.filter(row => row.Country === name);
       countryInfo.html("").append("h3").text(name);
+      d3.select("#clearButton").style("display", null);
+
 
       if (!countryData.length) {
         countryInfo.append("p").text("No data available.");
